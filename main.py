@@ -204,7 +204,7 @@ def calculate_next_date(interval: str) -> str:
 async def create_recurring_tasks():
     today = datetime.now().strftime("%Y-%m-%d")
     async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM recurring_tasks WHERE next_date = ?", (today,))
+        cursor = await db.execute("SELECT task_id, interval, next_date FROM recurring_tasks WHERE next_date = ?", (today,))
         recurring_tasks = await cursor.fetchall()
 
         for task in recurring_tasks:
