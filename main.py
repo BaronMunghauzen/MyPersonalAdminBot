@@ -347,16 +347,14 @@ async def show_tasks_by_category(callback: types.CallbackQuery):
 
     # Получаем задачи из выбранной категории
     async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM tasks WHERE user_id = ? AND category = ? and (completed_at is null or completed_at = ?)",
+        cursor = await db.execute("SELECT id, user_id, title, description, status FROM tasks WHERE user_id = ? AND category = ? and (completed_at is null or completed_at = ?)",
                                   (user_id, category, today_data))
         tasks = await cursor.fetchall()
 
     if tasks:
         tasks_text = ""
         for index, task in enumerate(tasks, start=1):
-            print(task)
-            print(task[5])
-            status_emoji = "✅" if task[5] == "completed" else "⏳"  # Смайлик для статуса
+            status_emoji = "✅" if task[4] == "completed" else "⏳"  # Смайлик для статуса
             tasks_text += f"{index}. {status_emoji} {task[2]}\n"  # Название задачи
         await callback.message.answer(f"Задачи в категории '{category}':\n{tasks_text}")
     else:
