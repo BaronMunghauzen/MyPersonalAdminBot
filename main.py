@@ -215,9 +215,10 @@ async def create_recurring_tasks():
 
             if original_task:
                 user_id, title, description, status, category = original_task[1:6]
+                status = 'active'
                 await db.execute(
-                    "INSERT INTO tasks (user_id, title, description, category) VALUES (?, ?, ?, ?)",
-                    (user_id, title, description, category),
+                    "INSERT INTO tasks (user_id, title, description, status, category) VALUES (?, ?, ?, ?)",
+                    (user_id, title, description, status, category),
                 )
                 # Обновляем следующую дату для повторяющейся задачи
                 new_next_date = calculate_next_date(interval)
@@ -569,23 +570,23 @@ async def admin_stats(message: types.Message):
 
 
 # Перенос невыполненных задач на следующий день
-async def move_unfinished_tasks():
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    async with aiosqlite.connect(DATABASE) as db:
-        await db.execute(
-            "UPDATE tasks SET due_date = ? WHERE due_date = ? AND status = 'active'",
-            (tomorrow, today),
-        )
-        await db.commit()
-
-    logging.info(f"Задачи перенесены на {tomorrow}")
-
-
-# Планировщик для переноса задач
-def schedule_task_mover():
-    scheduler.add_job(move_unfinished_tasks, "cron", hour=0, minute=0)
+# async def move_unfinished_tasks():
+#     today = datetime.now().strftime("%Y-%m-%d")
+#     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+#
+#     async with aiosqlite.connect(DATABASE) as db:
+#         await db.execute(
+#             "UPDATE tasks SET due_date = ? WHERE due_date = ? AND status = 'active'",
+#             (tomorrow, today),
+#         )
+#         await db.commit()
+#
+#     logging.info(f"Задачи перенесены на {tomorrow}")
+#
+#
+# # Планировщик для переноса задач
+# def schedule_task_mover():
+#     scheduler.add_job(move_unfinished_tasks, "cron", hour=0, minute=0)
 
 # Обработчик для неизвестных команд
 @dp.message()
@@ -596,7 +597,7 @@ async def handle_unknown(message: types.Message):
 # Запуск бота
 async def main():
     await init_db()
-    schedule_task_mover()
+    # schedule_task_mover()
     schedule_recurring_tasks()
     scheduler.start()
     await dp.start_polling(bot)
