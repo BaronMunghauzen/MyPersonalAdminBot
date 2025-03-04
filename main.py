@@ -354,6 +354,8 @@ async def show_tasks_by_category(callback: types.CallbackQuery):
     if tasks:
         tasks_text = ""
         for index, task in enumerate(tasks, start=1):
+            print(task)
+            print(task[5])
             status_emoji = "✅" if task[5] == "completed" else "⏳"  # Смайлик для статуса
             tasks_text += f"{index}. {status_emoji} {task[2]}\n"  # Название задачи
         await callback.message.answer(f"Задачи в категории '{category}':\n{tasks_text}")
