@@ -217,7 +217,7 @@ async def create_recurring_tasks():
                 user_id, title, description, status, category = original_task[1:6]
                 status = 'active'
                 await db.execute(
-                    "INSERT INTO tasks (user_id, title, description, status, category) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO tasks (user_id, title, description, status, category) VALUES (?, ?, ?, ?, ?)",
                     (user_id, title, description, status, category),
                 )
                 # Обновляем следующую дату для повторяющейся задачи
@@ -230,7 +230,7 @@ async def create_recurring_tasks():
 
 # Планировщик для создания повторяющихся задач
 def schedule_recurring_tasks():
-    scheduler.add_job(create_recurring_tasks, "cron", hour=0, minute=0)  # Запуск каждый день в 00:00
+    scheduler.add_job(create_recurring_tasks, "cron", hour=7, minute=50)  # Запуск каждый день в 00:00
 
 # Просмотр задач
 @dp.message(F.text == "Мои задачи")
