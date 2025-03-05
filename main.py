@@ -37,8 +37,9 @@ DATABASE = "tasks.db"
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Добавить задачу"), KeyboardButton(text="Завершенные задачи")],
-        [KeyboardButton(text="Задачи по категориям"), KeyboardButton(text="Мои задачи")],
+        [KeyboardButton(text="Задачи по категориям"), KeyboardButton(text="Мои невыполненные задачи")],
         [KeyboardButton(text="Удалить задачу"), KeyboardButton(text="Завершить задачу")],
+        [KeyboardButton(text="Удалить категорию")],
     ],
     resize_keyboard=True,
 )
@@ -47,8 +48,9 @@ main_keyboard = ReplyKeyboardMarkup(
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Добавить задачу"), KeyboardButton(text="Завершенные задачи")],
-        [KeyboardButton(text="Задачи по категориям"), KeyboardButton(text="Мои задачи")],
+        [KeyboardButton(text="Задачи по категориям"), KeyboardButton(text="Мои невыполненные задачи")],
         [KeyboardButton(text="Удалить задачу"), KeyboardButton(text="Завершить задачу")],
+        [KeyboardButton(text="Удалить категорию")],
         [KeyboardButton(text="Статистика")],
     ],
     resize_keyboard=True,
@@ -62,6 +64,7 @@ class TaskStates(StatesGroup):
     waiting_for_description = State()
     waiting_for_due_date = State()
     waiting_for_category = State()
+    waiting_for_new_category = State()
     waiting_for_recurrence = State()
     editing_task = State()
 
@@ -126,25 +129,76 @@ async def process_task_title(message: types.Message, state: FSMContext):
 async def process_task_description(message: types.Message, state: FSMContext):
     await state.update_data(description=message.text)
 
-    # Предложите пользователю выбрать категорию
+    # Получаем список существующих категорий пользователя
+    user_id = message.from_user.id
+    async with aiosqlite.connect(DATABASE) as db:
+        cursor = await db.execute("SELECT DISTINCT name FROM categories WHERE user_id = ?", (user_id,))
+        categories = await cursor.fetchall()
+
+    # Создаем клавиатуру с существующими категориями и кнопкой для добавления новой
+    keyboard_buttons = [
+        [KeyboardButton(text=category[0])] for category in categories if category[0]  # Существующие категории
+    ]
+    keyboard_buttons.append([KeyboardButton(text="Добавить новую категорию")])  # Кнопка для добавления новой категории
+
     keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Работа")],
-            [KeyboardButton(text="Личное")],
-            [KeyboardButton(text="Учеба")],
-            [KeyboardButton(text="Другое")],
-        ],
+        keyboard=keyboard_buttons,
         resize_keyboard=True,
     )
-    await message.answer("Выберите категорию задачи:", reply_markup=keyboard)
+
+    await message.answer("Выберите категорию задачи или добавьте новую:", reply_markup=keyboard)
     await state.set_state(TaskStates.waiting_for_category)
 
-@dp.message(TaskStates.waiting_for_category)
+@dp.message(TaskStates.waiting_for_category, F.text != "Добавить новую категорию")
 async def process_task_category(message: types.Message, state: FSMContext):
     category = message.text
     await state.update_data(category=category)
 
-    # Предложите пользователю выбрать периодичность
+    # Переходим к выбору периодичности
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Ежедневно")],
+            [KeyboardButton(text="Еженедельно")],
+            [KeyboardButton(text="Каждые две недели")],
+            [KeyboardButton(text="Ежемесячно")],
+            [KeyboardButton(text="Без повторения")],
+        ],
+        resize_keyboard=True,
+    )
+    await message.answer("Выберите периодичность задачи:", reply_markup=keyboard)
+    await state.set_state(TaskStates.waiting_for_recurrence)
+
+@dp.message(TaskStates.waiting_for_category, F.text == "Добавить новую категорию")
+async def ask_for_new_category(message: types.Message, state: FSMContext):
+    await message.answer("Введите название новой категории:")
+    await state.set_state(TaskStates.waiting_for_new_category)
+
+@dp.message(TaskStates.waiting_for_new_category)
+async def process_new_category(message: types.Message, state: FSMContext):
+    new_category = message.text
+    user_id = message.from_user.id
+
+    async with aiosqlite.connect(DATABASE) as db:
+        # Проверяем, существует ли такая категория для данного пользователя
+        cursor = await db.execute(
+            "SELECT id FROM categories WHERE user_id = ? AND name = ?",
+            (user_id, new_category),
+        )
+        existing_category = await cursor.fetchone()
+
+        if existing_category:
+            # Если категория уже существует, просто используем её
+            await message.answer(f"Категория '{new_category}' уже существует. Используем её.")
+        else:
+            # Если категории нет, добавляем её в базу данных
+            await db.execute("INSERT INTO categories (user_id, name) VALUES (?, ?)", (user_id, new_category))
+            await db.commit()
+            await message.answer(f"Новая категория '{new_category}' добавлена.")
+
+    # Обновляем данные в состоянии
+    await state.update_data(category=new_category)
+
+    # Переходим к выбору периодичности
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Ежедневно")],
@@ -233,14 +287,14 @@ def schedule_recurring_tasks():
     scheduler.add_job(create_recurring_tasks, "cron", hour=0, minute=0)  # Запуск каждый день в 00:00
 
 # Просмотр задач
-@dp.message(F.text == "Мои задачи")
+@dp.message(F.text == "Мои невыполненные задачи")
 async def show_tasks(message: types.Message):
     user_id = message.from_user.id
 
     async with aiosqlite.connect(DATABASE) as db:
         # Получаем только активные задачи
         cursor = await db.execute(
-            "SELECT tasks.id, tasks.title, tasks.category, recurring_tasks.interval "
+            "SELECT tasks.id, tasks.title, tasks.description, tasks.category, recurring_tasks.interval "
             "FROM tasks "
             "LEFT JOIN recurring_tasks ON tasks.id = recurring_tasks.task_id "
             "WHERE tasks.user_id = ? AND tasks.status = 'active'",
@@ -249,47 +303,27 @@ async def show_tasks(message: types.Message):
         tasks = await cursor.fetchall()
 
     if tasks:
-        tasks_text = ""
-        for index, task in enumerate(tasks, start=1):
-            task_id, title, category, interval = task
-            # Добавляем информацию о периодичности, если она есть
-            interval_info = f" ({interval})" if interval else ""
-            tasks_text += f"{index}. {title} ({category}){interval_info}\n"
-        await message.answer(f"Ваши невыполненные задачи:\n{tasks_text}")
+        # Группируем задачи по категориям
+        tasks_by_category = {}
+        for task in tasks:
+            category = task[3]  # Категория задачи
+            if category not in tasks_by_category:
+                tasks_by_category[category] = []
+            tasks_by_category[category].append(task)
+
+        # Формируем сообщение с задачами по категориям
+        tasks_text = "Ваши невыполненные задачи:\n"
+        for category, tasks_in_category in tasks_by_category.items():
+            tasks_text += f"\nВ категории {category}:\n"
+            for index, task in enumerate(tasks_in_category, start=1):
+                task_id, title, description, category, interval = task
+                # Добавляем информацию о периодичности, если она есть
+                interval_info = f" ({interval})" if interval else ""
+                tasks_text += f"{index}. {title}{interval_info}\n    📝 {description}\n"
+
+        await message.answer(tasks_text)
     else:
         await message.answer("У вас нет активных задач.")
-
-# Просмотр задач по категории
-@dp.message(F.text == "Задачи по категории")
-async def show_tasks_by_category(message: types.Message):
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Работа")],
-            [KeyboardButton(text="Личное")],
-            [KeyboardButton(text="Учеба")],
-            [KeyboardButton(text="Другое")],
-        ],
-        resize_keyboard=True,
-    )
-    await message.answer("Выберите категорию для просмотра задач:", reply_markup=keyboard)
-
-@dp.message(F.text.in_({"Работа", "Личное", "Учеба", "Другое"}))
-async def show_tasks_in_category(message: types.Message):
-    user_id = message.from_user.id
-    category = message.text
-
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM tasks WHERE user_id = ? AND category = ?", (user_id, category))
-        tasks = await cursor.fetchall()
-
-    if tasks:
-        tasks_text = ""
-        for index, task in enumerate(tasks, start=1):
-            status_emoji = "✅" if task[4] == "completed" else ""
-            tasks_text += f"{index}. {status_emoji} {task[2]}\n"
-        await message.answer(f"Задачи в категории '{category}':\n{tasks_text}")
-    else:
-        await message.answer(f"В категории '{category}' нет задач.")
 
 # Получение списка задач с пагинацией
 async def get_tasks(user_id: int, page: int = 0, limit: int = 5):
@@ -322,10 +356,11 @@ def build_tasks_keyboard(tasks: list, page: int, action: str):
 @dp.message(F.text == "Задачи по категориям")
 async def show_categories(message: types.Message):
     user_id = message.from_user.id
+    today_data = datetime.now().strftime("%Y-%m-%d")
 
     # Получаем список уникальных категорий пользователя
     async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT DISTINCT category FROM tasks WHERE user_id = ?", (user_id,))
+        cursor = await db.execute("SELECT DISTINCT category FROM tasks WHERE user_id = ? and (completed_at is null or completed_at = ?)", (user_id, today_data,))
         categories = await cursor.fetchall()
 
     if categories:
@@ -356,7 +391,7 @@ async def show_tasks_by_category(callback: types.CallbackQuery):
         tasks_text = ""
         for index, task in enumerate(tasks, start=1):
             status_emoji = "✅" if task[4] == "completed" else "⏳"  # Смайлик для статуса
-            tasks_text += f"{index}. {status_emoji} {task[2]}\n"  # Название задачи
+            tasks_text += f"{index}. {status_emoji} {task[2]}\n    📝 {task[3]}\n"  # Название задачи
         await callback.message.answer(f"Задачи в категории '{category}':\n{tasks_text}")
     else:
         await callback.message.answer(f"В категории '{category}' нет задач.")
@@ -496,20 +531,31 @@ async def show_completed_tasks(callback: types.CallbackQuery):
 
     async with aiosqlite.connect(DATABASE) as db:
         cursor = await db.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND status = 'completed' AND completed_at = ?",
+            "SELECT id, user_id, title, description, status, category, completed_at FROM tasks WHERE user_id = ? AND status = 'completed' AND completed_at = ?",
             (user_id, date),
         )
         tasks = await cursor.fetchall()
 
     if tasks:
-        tasks_text = ""
-        for index, task in enumerate(tasks, start=1):  # Нумерация задач
-            tasks_text += (
-                f"{index}. 📌 {task[2]}\n"  # Название задачи
-                f"   📝 {task[3]}\n"  # Описание задачи
-                f"   ⏰ {task[4]}\n\n"  # Дата завершения
-            )
-        await callback.message.answer(f"Завершенные задачи на {date}:\n{tasks_text}")
+        # Группируем задачи по категориям
+        tasks_by_category = {}
+        for task in tasks:
+            category = task[5]  # Категория задачи
+            if category not in tasks_by_category:
+                tasks_by_category[category] = []
+            tasks_by_category[category].append(task)
+
+        # Формируем сообщение с задачами по категориям
+        tasks_text = f"Завершенные задачи на {date}:\n"
+        for category, tasks_in_category in tasks_by_category.items():
+            tasks_text += f"\nВ категории {category}:\n"
+            for index, task in enumerate(tasks_in_category, start=1):
+                tasks_text += (
+                    f"{index}. 📌 {task[2]}\n"  # Название задачи
+                    f"   📝 {task[3]}\n"  # Описание задачи
+                )
+
+        await callback.message.answer(tasks_text)
     else:
         await callback.message.answer(f"На {date} нет завершенных задач.")
 
@@ -568,6 +614,39 @@ async def admin_stats(message: types.Message):
     )
     await message.answer(stats_text)
 
+# Обработчик для кнопки "Удалить категорию"
+@dp.message(F.text == "Удалить категорию")
+async def delete_category(message: types.Message):
+    user_id = message.from_user.id
+
+    # Получаем список уникальных категорий пользователя
+    async with aiosqlite.connect(DATABASE) as db:
+        cursor = await db.execute("SELECT DISTINCT name FROM categories WHERE user_id = ?", (user_id,))
+        categories = await cursor.fetchall()
+
+    if categories:
+        # Создаем inline-клавиатуру с категориями
+        keyboard = InlineKeyboardBuilder()
+        for category in categories:
+            keyboard.add(InlineKeyboardButton(text=category[0], callback_data=f"delete_category_{category[0]}"))
+        keyboard.adjust(1)  # 1 кнопка в строке
+        await message.answer("Выберите категорию для удаления:", reply_markup=keyboard.as_markup())
+    else:
+        await message.answer("У вас нет категорий для удаления.")
+
+# Обработчик для удаления категории
+@dp.callback_query(F.data.startswith("delete_category_"))
+async def handle_delete_category(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    category_name = callback.data.split("_")[2]  # Получаем название категории
+
+    async with aiosqlite.connect(DATABASE) as db:
+        # Удаляем категорию из таблицы categories
+        await db.execute("DELETE FROM categories WHERE user_id = ? AND name = ?", (user_id, category_name))
+        await db.commit()
+
+    await callback.message.answer(f"Категория '{category_name}' удалена.")
+    await callback.answer()
 
 # Перенос невыполненных задач на следующий день
 # async def move_unfinished_tasks():
