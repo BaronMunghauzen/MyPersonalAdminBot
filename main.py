@@ -230,7 +230,7 @@ async def create_recurring_tasks():
 
 # Планировщик для создания повторяющихся задач
 def schedule_recurring_tasks():
-    scheduler.add_job(create_recurring_tasks, "cron", hour=7, minute=55)  # Запуск каждый день в 00:00
+    scheduler.add_job(create_recurring_tasks, "cron", hour=0, minute=0)  # Запуск каждый день в 00:00
 
 # Просмотр задач
 @dp.message(F.text == "Мои задачи")
