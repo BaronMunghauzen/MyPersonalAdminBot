@@ -628,14 +628,14 @@ async def delete_category(message: types.Message):
         # Создаем inline-клавиатуру с категориями
         keyboard = InlineKeyboardBuilder()
         for category in categories:
-            keyboard.add(InlineKeyboardButton(text=category[0], callback_data=f"delet_category_{category[0]}"))
+            keyboard.add(InlineKeyboardButton(text=category[0], callback_data=f"delette_category_{category[0]}"))
         keyboard.adjust(1)  # 1 кнопка в строке
         await message.answer("Выберите категорию для удаления:", reply_markup=keyboard.as_markup())
     else:
         await message.answer("У вас нет категорий для удаления.")
 
 # Обработчик для удаления категории
-@dp.callback_query(F.data.startswith("delet_category_"))
+@dp.callback_query(F.data.startswith("delette_category_"))
 async def handle_delete_category(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     category_name = callback.data.split("_")[2]  # Получаем название категории
