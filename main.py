@@ -410,6 +410,22 @@ async def delete_task(message: types.Message):
         await message.answer("У вас нет задач для удаления.")
 
 
+# Обработчик для удаления категории
+@dp.callback_query(F.data.startswith("delette_category_"))
+async def handle_delete_category(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    category_name = callback.data.split("_")[2]  # Получаем название категории
+    print(category_name)
+    async with aiosqlite.connect(DATABASE) as db:
+        # Удаляем категорию из таблицы categories
+        await db.execute("DELETE FROM categories WHERE user_id = ? AND name = ?", (user_id, category_name))
+        await db.commit()
+
+    await callback.message.answer(f"Категория '{category_name}' удалена.")
+    await callback.answer()
+
+
+
 # Обработчик для удаления задачи
 @dp.callback_query(F.data.startswith("delete_"))
 async def handle_delete_task(callback: types.CallbackQuery):
@@ -634,19 +650,7 @@ async def delete_category(message: types.Message):
     else:
         await message.answer("У вас нет категорий для удаления.")
 
-# Обработчик для удаления категории
-@dp.callback_query(F.data.startswith("delette_category_"))
-async def handle_delete_category(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    category_name = callback.data.split("_")[2]  # Получаем название категории
-    print(category_name)
-    async with aiosqlite.connect(DATABASE) as db:
-        # Удаляем категорию из таблицы categories
-        await db.execute("DELETE FROM categories WHERE user_id = ? AND name = ?", (user_id, category_name))
-        await db.commit()
 
-    await callback.message.answer(f"Категория '{category_name}' удалена.")
-    await callback.answer()
 
 # Перенос невыполненных задач на следующий день
 # async def move_unfinished_tasks():
