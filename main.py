@@ -639,7 +639,7 @@ async def delete_category(message: types.Message):
 async def handle_delete_category(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     category_name = callback.data.split("_")[2]  # Получаем название категории
-
+    print(category_name)
     async with aiosqlite.connect(DATABASE) as db:
         # Удаляем категорию из таблицы categories
         await db.execute("DELETE FROM categories WHERE user_id = ? AND name = ?", (user_id, category_name))
